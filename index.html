@@ -19,7 +19,8 @@
         body {
             margin: 0;
             overflow: hidden; /* 防止背景超出 */
-            background-color: #0f172a; /* 深藍底色 */
+            background-color: #0f172a; /* 預設底色，JS 會覆寫 */
+            transition: background-color 1s ease;
         }
         
         /* 背景 Canvas */
@@ -52,10 +53,11 @@
 
         /* 玻璃擬態模糊 */
         .glass-panel {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: rgba(15, 23, 42, 0.6); /* 預設，會被動態樣式覆蓋 */
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: background 1s ease;
         }
         
         /* 格子邊框顏色調整 */
@@ -65,12 +67,7 @@
         .cell-border {
             border-color: rgba(255, 255, 255, 0.15);
         }
-        .cell-border-bold-r {
-            border-right: 2px solid rgba(255, 255, 255, 0.5);
-        }
-        .cell-border-bold-b {
-            border-bottom: 2px solid rgba(255, 255, 255, 0.5);
-        }
+        /* 動態邊框 class 會在 React 中產生 */
     </style>
 </head>
 <body class="text-slate-200">
@@ -84,7 +81,7 @@
         const { useState, useEffect, useCallback, useRef } = React;
 
         // --- 生成式藝術背景邏輯 ---
-        const GenerativeBackground = () => {
+        const GenerativeBackground = ({ onColorChange }) => {
             const canvasRef = useRef(null);
 
             useEffect(() => {
@@ -94,6 +91,40 @@
                 
                 let width, height;
                 let particles = [];
+                let shapes = [];
+                
+                // 設定主題色
+                // 隨機色相 0-360
+                const baseHue = Math.floor(Math.random() * 360);
+                
+                // 背景：同色相，低飽和 (15-25%)，極低亮度 (5-10%)
+                const bgSat = 20; 
+                const bgLight = 8;
+                const bgColorString = `hsl(${baseHue}, ${bgSat}%, ${bgLight}%)`;
+                
+                // 元素：同色相，中高飽和，高亮度
+                const elemSat = 70;
+                const elemLight = 65;
+                const colorPrefix = `hsla(${baseHue}, ${elemSat}%, ${elemLight}%, `;
+
+                // 套用背景色到 body
+                document.body.style.backgroundColor = bgColorString;
+                
+                // 通知上層組件顏色已改變 (用於調整玻璃面板顏色)
+                if (onColorChange) {
+                    onColorChange(`hsla(${baseHue}, ${bgSat}%, ${bgLight+5}%, 0.6)`);
+                }
+
+                // 決定要啟用的元素類型 (最多選 2 種)
+                const allTypes = ['point', 'line', 'plane'];
+                // 洗牌
+                const shuffled = allTypes.sort(() => 0.5 - Math.random());
+                // 取前 1 或 2 個
+                const activeTypes = shuffled.slice(0, Math.floor(Math.random() * 2) + 1);
+                
+                const usePoints = activeTypes.includes('point');
+                const useLines = activeTypes.includes('line');
+                const usePlanes = activeTypes.includes('plane');
 
                 // 設定畫布尺寸
                 const resize = () => {
@@ -103,69 +134,168 @@
                 window.addEventListener('resize', resize);
                 resize();
 
-                // 粒子類別
+                // 1. 粒子 (點/線共用)
                 class Particle {
                     constructor() {
+                        this.init();
+                    }
+                    
+                    init() {
                         this.x = Math.random() * width;
                         this.y = Math.random() * height;
-                        this.vx = (Math.random() - 0.5) * 0.5; // 速度極慢
-                        this.vy = (Math.random() - 0.5) * 0.5;
-                        this.radius = Math.random() * 100 + 50; // 巨大模糊光點
-                        // 隨機顏色：青色、紫色、粉色系
-                        const colors = [
-                            'hsla(220, 70%, 50%, 0.15)', // 藍
-                            'hsla(280, 70%, 50%, 0.15)', // 紫
-                            'hsla(320, 70%, 60%, 0.15)', // 粉
-                            'hsla(180, 70%, 50%, 0.15)'  // 青
-                        ];
-                        this.color = colors[Math.floor(Math.random() * colors.length)];
+                        this.vx = (Math.random() - 0.5) * 1.0; 
+                        this.vy = (Math.random() - 0.5) * 1.0;
+                        this.radius = Math.random() * 2 + 1;
                     }
 
                     update() {
                         this.x += this.vx;
                         this.y += this.vy;
 
-                        // 邊界反彈
-                        if (this.x < -100 || this.x > width + 100) this.vx *= -1;
-                        if (this.y < -100 || this.y > height + 100) this.vy *= -1;
+                        if (this.x < 0 || this.x > width) this.vx *= -1;
+                        if (this.y < 0 || this.y > height) this.vy *= -1;
                     }
 
                     draw(ctx) {
                         ctx.beginPath();
                         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                        ctx.fillStyle = this.color;
+                        ctx.fillStyle = colorPrefix + '0.8)';
                         ctx.fill();
                     }
                 }
 
-                // 初始化粒子
-                const initParticles = () => {
+                // 2. 幾何圖形 (面)
+                class FloatingShape {
+                    constructor() {
+                        this.init();
+                    }
+
+                    init() {
+                        this.x = Math.random() * width;
+                        this.y = Math.random() * height;
+                        this.size = Math.random() * 150 + 50; 
+                        this.angle = Math.random() * Math.PI * 2;
+                        this.spin = (Math.random() - 0.5) * 0.005;
+                        this.vx = (Math.random() - 0.5) * 0.2;
+                        this.vy = (Math.random() - 0.5) * 0.2;
+                        this.type = Math.random() > 0.5 ? 'square' : 'triangle';
+                        this.opacity = 0;
+                        this.fadingIn = true;
+                        this.life = Math.random() * 0.002 + 0.001; 
+                    }
+
+                    update() {
+                        this.x += this.vx;
+                        this.y += this.vy;
+                        this.angle += this.spin;
+
+                        if (this.fadingIn) {
+                            this.opacity += this.life;
+                            if (this.opacity > 0.12) this.fadingIn = false; 
+                        } else {
+                            this.opacity -= this.life;
+                            if (this.opacity < 0) this.init(); 
+                        }
+
+                        if (this.x < -200) this.x = width + 200;
+                        if (this.x > width + 200) this.x = -200;
+                        if (this.y < -200) this.y = height + 200;
+                        if (this.y > height + 200) this.y = -200;
+                    }
+
+                    draw(ctx) {
+                        ctx.save();
+                        ctx.translate(this.x, this.y);
+                        ctx.rotate(this.angle);
+                        ctx.beginPath();
+                        
+                        // 填色
+                        ctx.fillStyle = colorPrefix + this.opacity + ')';
+                        // 邊框
+                        ctx.strokeStyle = colorPrefix + (this.opacity * 1.5) + ')';
+                        ctx.lineWidth = 2;
+
+                        if (this.type === 'square') {
+                            ctx.rect(-this.size/2, -this.size/2, this.size, this.size);
+                        } else {
+                            const h = this.size * (Math.sqrt(3)/2);
+                            ctx.moveTo(0, -h/2);
+                            ctx.lineTo(this.size/2, h/2);
+                            ctx.lineTo(-this.size/2, h/2);
+                            ctx.closePath();
+                        }
+
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+
+                // 初始化物件
+                const initItems = () => {
                     particles = [];
-                    const particleCount = 15; // 數量不用多，因為很大
-                    for (let i = 0; i < particleCount; i++) {
-                        particles.push(new Particle());
+                    shapes = [];
+                    // 根據選中的類型生成
+                    if (usePoints || useLines) {
+                        const count = useLines ? 50 : 80; // 如果只要點，可以多一點
+                        for (let i = 0; i < count; i++) particles.push(new Particle());
+                    }
+                    if (usePlanes) {
+                        for (let i = 0; i < 8; i++) shapes.push(new FloatingShape());
                     }
                 };
-                initParticles();
+                initItems();
 
-                // 動畫迴圈
+                // 動畫主迴圈
                 const animate = () => {
                     ctx.clearRect(0, 0, width, height);
                     
-                    // 讓背景有點殘影效果，創造流動感
-                    // ctx.fillStyle = 'rgba(15, 23, 42, 0.1)';
-                    // ctx.fillRect(0, 0, width, height);
+                    // 1. 畫「面」
+                    if (usePlanes) {
+                        shapes.forEach(s => {
+                            s.update();
+                            s.draw(ctx);
+                        });
+                    }
 
-                    // 啟用混合模式讓光點疊加更漂亮
-                    ctx.globalCompositeOperation = 'screen'; 
+                    // 2. 畫「點」與「線」
+                    if (usePoints || useLines) {
+                        ctx.globalCompositeOperation = 'lighter'; 
+                        
+                        particles.forEach(p => p.update());
 
-                    particles.forEach(p => {
-                        p.update();
-                        p.draw(ctx);
-                    });
+                        // 畫線
+                        if (useLines) {
+                            ctx.lineWidth = 0.5;
+                            for (let i = 0; i < particles.length; i++) {
+                                const p1 = particles[i];
+                                // 如果有點，就畫點；如果只有線，就不畫圓點本身 (選用)
+                                // 這裡設定：如果有選 points 類型才畫圓，否則只畫線的節點
+                                if (usePoints) p1.draw(ctx);
 
-                    // 還原混合模式
-                    ctx.globalCompositeOperation = 'source-over';
+                                for (let j = i + 1; j < particles.length; j++) {
+                                    const p2 = particles[j];
+                                    const dx = p1.x - p2.x;
+                                    const dy = p1.y - p2.y;
+                                    const dist = Math.sqrt(dx*dx + dy*dy);
+
+                                    if (dist < 130) {
+                                        ctx.beginPath();
+                                        const opacity = 1 - (dist / 130);
+                                        ctx.strokeStyle = colorPrefix + (opacity * 0.4) + ')';
+                                        ctx.moveTo(p1.x, p1.y);
+                                        ctx.lineTo(p2.x, p2.y);
+                                        ctx.stroke();
+                                    }
+                                }
+                            }
+                        } else if (usePoints) {
+                            // 只有點，沒有線
+                             particles.forEach(p => p.draw(ctx));
+                        }
+                        
+                        ctx.globalCompositeOperation = 'source-over';
+                    }
 
                     animationFrameId = requestAnimationFrame(animate);
                 };
@@ -177,7 +307,7 @@
                 };
             }, []);
 
-            return null; // 這個組件不渲染 DOM，只負責 Canvas
+            return null;
         };
 
         // --- 內嵌圖標元件 ---
@@ -229,27 +359,45 @@
             </svg>
         );
 
-        // --- 數獨邏輯核心 ---
+        // --- 數獨邏輯核心 (支援 6x6 與 9x9) ---
 
-        const isValid = (board, row, col, num) => {
-            for (let i = 0; i < 9; i++) {
-                const m = 3 * Math.floor(row / 3) + Math.floor(i / 3);
-                const n = 3 * Math.floor(col / 3) + i % 3;
-                if (board[row][i] === num || board[i][col] === num || board[m][n] === num) {
-                    return false;
+        // 取得宮格資訊
+        // 9x9: 3x3 box
+        // 6x6: 2x3 box (2 rows, 3 cols)
+        const getBoxInfo = (size) => {
+            if (size === 9) return { boxRows: 3, boxCols: 3 };
+            if (size === 6) return { boxRows: 2, boxCols: 3 };
+            return { boxRows: 3, boxCols: 3 };
+        };
+
+        const isValid = (board, row, col, num, size) => {
+            const { boxRows, boxCols } = getBoxInfo(size);
+
+            for (let i = 0; i < size; i++) {
+                // Check Row & Col
+                if (board[row][i] === num || board[i][col] === num) return false;
+            }
+
+            // Check Box
+            const startRow = Math.floor(row / boxRows) * boxRows;
+            const startCol = Math.floor(col / boxCols) * boxCols;
+
+            for (let i = 0; i < boxRows; i++) {
+                for (let j = 0; j < boxCols; j++) {
+                    if (board[startRow + i][startCol + j] === num) return false;
                 }
             }
             return true;
         };
 
-        const solveSudoku = (board) => {
-            for (let row = 0; row < 9; row++) {
-                for (let col = 0; col < 9; col++) {
+        const solveSudoku = (board, size) => {
+            for (let row = 0; row < size; row++) {
+                for (let col = 0; col < size; col++) {
                     if (board[row][col] === 0) {
-                        for (let num = 1; num <= 9; num++) {
-                            if (isValid(board, row, col, num)) {
+                        for (let num = 1; num <= size; num++) {
+                            if (isValid(board, row, col, num, size)) {
                                 board[row][col] = num;
-                                if (solveSudoku(board)) return true;
+                                if (solveSudoku(board, size)) return true;
                                 board[row][col] = 0;
                             }
                         }
@@ -260,44 +408,45 @@
             return true;
         };
 
-        const generateFullBoard = () => {
-            const board = Array.from({ length: 9 }, () => Array(9).fill(0));
-            for (let i = 0; i < 9; i += 3) fillBox(board, i, i);
-            solveSudoku(board);
+        const generateFullBoard = (size) => {
+            const board = Array.from({ length: size }, () => Array(size).fill(0));
+            
+            // 隨機填入對角線的宮格 (這些宮格互相獨立)
+            const { boxRows, boxCols } = getBoxInfo(size);
+            
+            // 對角線宮格的起始點： (0,0), (boxRows, boxCols), ...
+            // 但 6x6 不是正方形宮格 (2x3)，對角線邏輯比較複雜，這裡簡化：
+            // 直接解題，只隨機填入第一行以確保隨機性即可
+            
+            // 隨機填第一行
+            const firstRow = Array.from({length: size}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+            board[0] = firstRow;
+
+            solveSudoku(board, size);
             return board;
         };
 
-        const fillBox = (board, row, col) => {
-            let num;
-            for (let i = 0; i < 3; i++) {
-                for (let j = 0; j < 3; j++) {
-                    do {
-                        num = Math.floor(Math.random() * 9) + 1;
-                    } while (!isSafeInBox(board, row, col, num));
-                    board[row + i][col + j] = num;
-                }
-            }
-        };
-
-        const isSafeInBox = (board, rowStart, colStart, num) => {
-            for (let i = 0; i < 3; i++) {
-                for (let j = 0; j < 3; j++) {
-                    if (board[rowStart + i][colStart + j] === num) return false;
-                }
-            }
-            return true;
-        };
-
-        const removeNumbers = (board, difficulty) => {
+        const removeNumbers = (board, difficulty, size) => {
             const newBoard = board.map(row => [...row]);
             let holes = 0;
-            if (difficulty === 'Easy') holes = 30;
-            if (difficulty === 'Medium') holes = 45;
-            if (difficulty === 'Hard') holes = 55;
+            
+            // 根據大小調整挖孔數量
+            // 9x9 (81格): Easy 30, Medium 45, Hard 55
+            // 6x6 (36格): Easy 12, Medium 18, Hard 24
+            
+            if (size === 9) {
+                if (difficulty === 'Easy') holes = 30;
+                if (difficulty === 'Medium') holes = 45;
+                if (difficulty === 'Hard') holes = 55;
+            } else {
+                if (difficulty === 'Easy') holes = 14;
+                if (difficulty === 'Medium') holes = 19;
+                if (difficulty === 'Hard') holes = 24;
+            }
 
             while (holes > 0) {
-                let row = Math.floor(Math.random() * 9);
-                let col = Math.floor(Math.random() * 9);
+                let row = Math.floor(Math.random() * size);
+                let col = Math.floor(Math.random() * size);
                 if (newBoard[row][col] !== 0) {
                     newBoard[row][col] = 0;
                     holes--;
@@ -309,6 +458,7 @@
         // --- Main App Component ---
 
         function App() {
+            const [gridSize, setGridSize] = useState(9); // 9 or 6
             const [initialBoard, setInitialBoard] = useState([]); 
             const [solvedBoard, setSolvedBoard] = useState([]);   
             const [gameBoard, setGameBoard] = useState([]);       
@@ -319,27 +469,25 @@
             const [loading, setLoading] = useState(true);
             const [isNoteMode, setIsNoteMode] = useState(false);
             const [timer, setTimer] = useState(0); 
-            
-            // 新增：遊戲是否開始的狀態
             const [isGameStarted, setIsGameStarted] = useState(false);
+            const [panelBg, setPanelBg] = useState('rgba(15, 23, 42, 0.6)');
 
-            const startNewGame = useCallback((diff = difficulty) => {
+            const startNewGame = useCallback((diff = difficulty, size = gridSize) => {
                 setLoading(true);
                 localStorage.removeItem('sudoku-game-state');
                 
-                // 開始新遊戲時，先暫停，顯示開始按鈕
                 setIsGameStarted(false);
 
                 setTimeout(() => {
-                    const full = generateFullBoard();
+                    const full = generateFullBoard(size);
                     const solved = full.map(row => [...row]);
-                    const puzzle = removeNumbers(full, diff);
+                    const puzzle = removeNumbers(full, diff, size);
                     
                     setSolvedBoard(solved);
                     setInitialBoard(puzzle.map(row => [...row]));
                     setGameBoard(puzzle.map(row => [...row]));
                     
-                    const initialNotes = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => []));
+                    const initialNotes = Array.from({ length: size }, () => Array.from({ length: size }, () => []));
                     setNotesBoard(initialNotes);
 
                     setIsWon(false);
@@ -347,14 +495,18 @@
                     setTimer(0);
                     setLoading(false);
                 }, 50); 
-            }, [difficulty]);
+            }, [difficulty, gridSize]);
 
+            // 初始化與讀取存檔
             useEffect(() => {
                 const savedState = localStorage.getItem('sudoku-game-state');
                 if (savedState) {
                     try {
                         const parsed = JSON.parse(savedState);
+                        // 檢查存檔的 gridSize 是否存在且與目前設定相符(簡單起見，讀取存檔會覆蓋目前的 gridSize)
                         if (parsed.gameBoard && parsed.initialBoard) {
+                            const savedSize = parsed.gameBoard.length;
+                            setGridSize(savedSize); // 恢復大小
                             setInitialBoard(parsed.initialBoard);
                             setSolvedBoard(parsed.solvedBoard);
                             setGameBoard(parsed.gameBoard);
@@ -363,18 +515,27 @@
                             setIsWon(parsed.isWon);
                             setTimer(parsed.timer || 0);
                             setLoading(false);
-                            // 即使是載入存檔，也先設定為未開始，讓使用者點擊「繼續」
                             setIsGameStarted(false);
                             return;
                         }
                     } catch (e) {
-                        console.error("讀取存檔失敗，開始新遊戲", e);
+                        console.error("讀取存檔失敗", e);
                     }
                 }
                 startNewGame();
             }, []);
 
-            // 計時器邏輯：只在 isGameStarted 為 true 時執行
+            // 存檔
+            useEffect(() => {
+                if (loading || initialBoard.length === 0) return;
+                const stateToSave = {
+                    initialBoard, solvedBoard, gameBoard, notesBoard,
+                    difficulty, isWon, timer
+                };
+                localStorage.setItem('sudoku-game-state', JSON.stringify(stateToSave));
+            }, [gameBoard, notesBoard, difficulty, isWon, timer, initialBoard, solvedBoard]);
+
+            // Timer
             useEffect(() => {
                 let interval;
                 if (!loading && !isWon && isGameStarted) {
@@ -385,21 +546,6 @@
                 return () => clearInterval(interval);
             }, [loading, isWon, isGameStarted]);
 
-            useEffect(() => {
-                if (loading || initialBoard.length === 0) return;
-
-                const stateToSave = {
-                    initialBoard,
-                    solvedBoard,
-                    gameBoard,
-                    notesBoard,
-                    difficulty,
-                    isWon,
-                    timer
-                };
-                localStorage.setItem('sudoku-game-state', JSON.stringify(stateToSave));
-            }, [gameBoard, notesBoard, difficulty, isWon, timer]);
-
             const formatTime = (seconds) => {
                 const mins = Math.floor(seconds / 60);
                 const secs = seconds % 60;
@@ -408,41 +554,43 @@
 
             const handleNumberInput = (num) => {
                 if (isWon || !selectedCell || !isGameStarted) return;
+                // 檢查輸入數字範圍
+                if (num > gridSize) return;
+
                 const [r, c] = selectedCell;
-                
                 if (initialBoard[r][c] !== 0) return;
 
                 if (isNoteMode) {
                     if (gameBoard[r][c] !== 0) return;
-
                     const newNotes = [...notesBoard];
                     newNotes[r] = [...newNotes[r]];
                     const currentNotes = new Set(newNotes[r][c]);
-
-                    if (currentNotes.has(num)) {
-                        currentNotes.delete(num);
-                    } else {
-                        currentNotes.add(num);
-                    }
-                    
-                    newNotes[r][c] = Array.from(currentNotes).sort();
+                    if (currentNotes.has(num)) currentNotes.delete(num);
+                    else currentNotes.add(num);
+                    newNotes[r][c] = Array.from(currentNotes).sort((a,b)=>a-b);
                     setNotesBoard(newNotes);
-
                 } else {
                     const newBoard = [...gameBoard];
-                    
-                    if (newBoard[r][c] === num) {
-                        newBoard[r][c] = 0;
-                    } else {
+                    if (newBoard[r][c] === num) newBoard[r][c] = 0;
+                    else {
                         newBoard[r][c] = num;
                         const newNotes = [...notesBoard];
                         newNotes[r] = [...newNotes[r]];
                         newNotes[r][c] = [];
                         setNotesBoard(newNotes);
                     }
-                    
                     setGameBoard(newBoard);
-                    checkWin(newBoard);
+                    
+                    // Check Win
+                    let isFull = true;
+                    let isCorrect = true;
+                    for (let i = 0; i < gridSize; i++) {
+                        for (let j = 0; j < gridSize; j++) {
+                            if (newBoard[i][j] === 0) isFull = false;
+                            if (newBoard[i][j] !== solvedBoard[i][j]) isCorrect = false;
+                        }
+                    }
+                    if (isFull && isCorrect) setIsWon(true);
                 }
             };
 
@@ -450,53 +598,35 @@
                 if (isWon || !selectedCell || !isGameStarted) return;
                 const [r, c] = selectedCell;
                 if (initialBoard[r][c] !== 0) return;
-
                 const newBoard = [...gameBoard];
                 newBoard[r][c] = 0;
                 setGameBoard(newBoard);
-
                 const newNotes = [...notesBoard];
                 newNotes[r][c] = [];
                 setNotesBoard(newNotes);
             };
 
-            const checkWin = (currentBoard) => {
-                for (let i = 0; i < 9; i++) {
-                    for (let j = 0; j < 9; j++) {
-                        if (currentBoard[i][j] !== solvedBoard[i][j]) return;
-                    }
-                }
-                setIsWon(true);
-            };
-
+            // 處理鍵盤
             useEffect(() => {
                 const handleKeyDown = (e) => {
                     if (isWon || !isGameStarted) return;
-                    
-                    if (e.key >= '1' && e.key <= '9') {
+                    if (e.key >= '1' && e.key <= gridSize.toString()) {
                         handleNumberInput(parseInt(e.key));
                     }
+                    if (e.key === 'Backspace' || e.key === 'Delete') handleErase();
+                    if (e.key === 'n' || e.key === 'N') setIsNoteMode(prev => !prev);
                     
-                    if (e.key === 'Backspace' || e.key === 'Delete') {
-                        handleErase();
-                    }
-
-                    if (e.key === 'n' || e.key === 'N') {
-                        setIsNoteMode(prev => !prev);
-                    }
-
                     if (selectedCell) {
                         const [r, c] = selectedCell;
                         if (e.key === 'ArrowUp') setSelectedCell([Math.max(0, r - 1), c]);
-                        if (e.key === 'ArrowDown') setSelectedCell([Math.min(8, r + 1), c]);
+                        if (e.key === 'ArrowDown') setSelectedCell([Math.min(gridSize - 1, r + 1), c]);
                         if (e.key === 'ArrowLeft') setSelectedCell([r, Math.max(0, c - 1)]);
-                        if (e.key === 'ArrowRight') setSelectedCell([r, Math.min(8, c + 1)]);
+                        if (e.key === 'ArrowRight') setSelectedCell([r, Math.min(gridSize - 1, c + 1)]);
                     }
                 };
-                
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
-            }, [selectedCell, gameBoard, notesBoard, isWon, isNoteMode, isGameStarted]);
+            }, [selectedCell, gameBoard, notesBoard, isWon, isNoteMode, isGameStarted, gridSize]);
 
             const getCellClass = (r, c) => {
                 const val = gameBoard[r][c];
@@ -505,12 +635,22 @@
                 
                 let isRelated = false;
                 let isSameNumber = false;
+                
+                const { boxRows, boxCols } = getBoxInfo(gridSize);
 
                 if (selectedCell) {
                     const [sr, sc] = selectedCell;
                     const sVal = gameBoard[sr][sc];
                     
-                    if (r === sr || c === sc || (Math.floor(r/3) === Math.floor(sr/3) && Math.floor(c/3) === Math.floor(sc/3))) {
+                    // Row, Col
+                    let inBox = false;
+                    const rStart = Math.floor(r/boxRows) * boxRows;
+                    const cStart = Math.floor(c/boxCols) * boxCols;
+                    const srStart = Math.floor(sr/boxRows) * boxRows;
+                    const scStart = Math.floor(sc/boxCols) * boxCols;
+                    if (rStart === srStart && cStart === scStart) inBox = true;
+
+                    if (r === sr || c === sc || inBox) {
                         isRelated = true;
                     }
                     if (sVal !== 0 && val === sVal) {
@@ -518,22 +658,25 @@
                     }
                 }
 
-                // 基礎樣式：透明背景，細邊框
                 let baseClass = "w-full h-full relative flex items-center justify-center cursor-pointer transition-colors duration-200 select-none cell-border border-[0.5px] ";
                 
-                // 加粗邊框
-                if (c % 3 === 2 && c !== 8) baseClass += "cell-border-bold-r ";
-                if (r % 3 === 2 && r !== 8) baseClass += "cell-border-bold-b ";
+                // 動態邊框邏輯
+                // 9x9: 每 3 行 (index 2, 5) 加粗右邊框
+                // 6x6: 每 3 行 (index 2) 加粗右邊框 (boxCols = 3)
+                if ((c + 1) % boxCols === 0 && c !== gridSize - 1) baseClass += "cell-border-bold-r ";
+                
+                // 9x9: 每 3 列 (index 2, 5) 加粗下邊框
+                // 6x6: 每 2 列 (index 1, 3) 加粗下邊框 (boxRows = 2)
+                if ((r + 1) % boxRows === 0 && r !== gridSize - 1) baseClass += "cell-border-bold-b ";
 
-                // 狀態顏色 (Glassmorphism 風格)
                 if (isSelected) {
                     baseClass += "bg-cyan-500/80 text-white shadow-[0_0_15px_rgba(6,182,212,0.6)] z-10 ";
                 } else if (isSameNumber) {
-                    baseClass += "bg-cyan-900/40 "; // 相同數字高亮
+                    baseClass += "bg-cyan-900/40 "; 
                 } else if (isRelated) {
-                    baseClass += "bg-slate-700/30 "; // 關聯區域
+                    baseClass += "bg-slate-700/30 "; 
                 } else {
-                    baseClass += "hover:bg-white/5 "; // hover 效果
+                    baseClass += "hover:bg-white/5 ";
                 }
 
                 return baseClass;
@@ -546,9 +689,11 @@
 
                 if (val !== 0) {
                     return (
-                        <span className={`text-lg sm:text-2xl font-medium drop-shadow-md ${
-                            !isSelected && !isInitial ? 'text-cyan-400' : '' // 玩家填的數字：亮青色
-                        } ${isInitial ? 'font-bold text-white' : ''} ${ // 題目數字：白色
+                        <span className={`font-medium drop-shadow-md ${
+                            gridSize === 9 ? 'text-lg sm:text-2xl' : 'text-xl sm:text-3xl'
+                        } ${
+                            !isSelected && !isInitial ? 'text-cyan-400' : '' 
+                        } ${isInitial ? 'font-bold text-white' : ''} ${
                             isSelected ? 'text-white' : ''
                         }`}>
                             {val}
@@ -558,9 +703,11 @@
 
                 const notes = notesBoard[r] && notesBoard[r][c];
                 if (notes && notes.length > 0) {
+                    // 6x6 用 2x3 的 grid 顯示筆記，9x9 用 3x3
+                    const gridCols = gridSize === 6 ? 'grid-cols-3' : 'grid-cols-3';
                     return (
-                        <div className="grid grid-cols-3 gap-0 w-full h-full p-[2px]">
-                            {[1,2,3,4,5,6,7,8,9].map(n => (
+                        <div className={`grid ${gridCols} gap-0 w-full h-full p-[2px]`}>
+                            {Array.from({length: gridSize}, (_, i) => i+1).map(n => (
                                 <div key={n} className="flex items-center justify-center text-[8px] sm:text-[10px] leading-none text-pink-300/80 font-medium">
                                     {notes.includes(n) ? n : ''}
                                 </div>
@@ -568,13 +715,12 @@
                         </div>
                     );
                 }
-                
                 return null;
             };
 
             return (
                 <div className="relative min-h-screen flex flex-col items-center py-8 font-sans text-slate-200">
-                    <GenerativeBackground />
+                    <GenerativeBackground onColorChange={setPanelBg} />
                     
                     <div className="mb-6 flex flex-col items-center w-full max-w-[450px] px-4 z-10">
                         <div className="flex justify-between items-center w-full mb-4">
@@ -582,17 +728,18 @@
                                 數獨 Sudoku
                             </h1>
                             <div className="flex items-center gap-3">
-                                <div className="flex items-center text-cyan-100 bg-slate-800/50 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm">
+                                <div className="flex items-center text-cyan-100 px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm" style={{background: panelBg}}>
                                     <Clock className="w-4 h-4 mr-2 text-cyan-400" />
                                     <span className="font-mono font-medium">{formatTime(timer)}</span>
                                 </div>
                                 <button 
                                     onClick={() => {
                                         if(confirm('確定要放棄當前進度並開始新遊戲嗎？')) {
-                                            startNewGame();
+                                            startNewGame(difficulty, gridSize);
                                         }
                                     }}
-                                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition text-cyan-100 border border-slate-700"
+                                    className="p-2 rounded-full transition text-cyan-100 border border-slate-700 hover:bg-white/10"
+                                    style={{background: panelBg}}
                                     title="新遊戲"
                                 >
                                     <RefreshCw className="w-5 h-5" />
@@ -600,45 +747,55 @@
                             </div>
                         </div>
                         
-                        <div className="flex justify-between w-full items-center glass-panel p-3 rounded-lg shadow-lg">
-                            <div className="flex items-center">
-                                <span className="mr-2 text-sm font-medium text-slate-300">難度:</span>
-                                <select 
-                                    value={difficulty} 
-                                    onChange={(e) => {
-                                        if (timer > 0 && !isWon) {
+                        <div className="flex flex-col w-full gap-2 p-3 rounded-lg shadow-lg glass-panel" style={{background: panelBg}}>
+                            {/* 第一列：設定 */}
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                     <select 
+                                        value={gridSize} 
+                                        onChange={(e) => {
+                                            const newSize = parseInt(e.target.value);
+                                            if(confirm(`切換為 ${newSize}x${newSize} 將開始新遊戲，確定嗎？`)) {
+                                                setGridSize(newSize);
+                                                startNewGame(difficulty, newSize);
+                                            }
+                                        }}
+                                        className="bg-slate-900/50 border border-slate-600 rounded px-2 py-1 text-sm outline-none focus:border-cyan-500 text-slate-200"
+                                    >
+                                        <option value="9">9 x 9 (標準)</option>
+                                        <option value="6">6 x 6 (迷你)</option>
+                                    </select>
+                                    <select 
+                                        value={difficulty} 
+                                        onChange={(e) => {
                                             if(confirm('變更難度將開始新遊戲，確定嗎？')) {
                                                 setDifficulty(e.target.value);
-                                                startNewGame(e.target.value);
+                                                startNewGame(e.target.value, gridSize);
                                             }
-                                        } else {
-                                            setDifficulty(e.target.value);
-                                            startNewGame(e.target.value);
-                                        }
-                                    }}
-                                    className="bg-slate-900/50 border border-slate-600 rounded px-2 py-1 text-sm outline-none focus:border-cyan-500 text-slate-200"
-                                >
-                                    <option value="Easy">簡單</option>
-                                    <option value="Medium">中等</option>
-                                    <option value="Hard">困難</option>
-                                </select>
-                            </div>
-                            <div className="text-sm text-cyan-300 font-medium">
-                                {isNoteMode ? '✏️ 草稿模式' : '✍️ 答題模式'}
+                                        }}
+                                        className="bg-slate-900/50 border border-slate-600 rounded px-2 py-1 text-sm outline-none focus:border-cyan-500 text-slate-200"
+                                    >
+                                        <option value="Easy">簡單</option>
+                                        <option value="Medium">中等</option>
+                                        <option value="Hard">困難</option>
+                                    </select>
+                                </div>
+                                <div className="text-sm text-cyan-300 font-medium">
+                                    {isNoteMode ? '✏️ 草稿模式' : '✍️ 答題模式'}
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* 獲勝畫面 */}
                     {isWon && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
-                            <div className="glass-panel p-8 rounded-2xl shadow-2xl flex flex-col items-center animate-bounce-short border border-cyan-500/30">
+                            <div className="p-8 rounded-2xl shadow-2xl flex flex-col items-center animate-bounce-short border border-cyan-500/30 glass-panel" style={{background: panelBg}}>
                                 <Trophy className="w-16 h-16 text-yellow-400 mb-4 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]" />
                                 <h2 className="text-3xl font-bold text-white mb-2">恭喜獲勝！</h2>
-                                <p className="text-slate-300 mb-2">難度: {difficulty}</p>
+                                <p className="text-slate-300 mb-2">{gridSize}x{gridSize} - {difficulty}</p>
                                 <p className="text-cyan-300 mb-6 font-mono text-lg">耗時: {formatTime(timer)}</p>
                                 <button 
-                                    onClick={() => startNewGame()}
+                                    onClick={() => startNewGame(difficulty, gridSize)}
                                     className="px-6 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-full hover:from-cyan-500 hover:to-blue-500 transition shadow-lg flex items-center"
                                 >
                                     <RefreshCw className="w-4 h-4 mr-2" />
@@ -648,10 +805,8 @@
                         </div>
                     )}
 
-                    {/* 盤面區域 */}
-                    <div className="relative glass-panel p-1 rounded-lg shadow-2xl select-none z-10 overflow-hidden">
+                    <div className="relative p-1 rounded-lg shadow-2xl select-none z-10 overflow-hidden glass-panel" style={{background: panelBg}}>
                         
-                        {/* 開始遊戲遮罩 */}
                         {!isGameStarted && !loading && !isWon && (
                             <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-sm">
                                 <div className="text-center">
@@ -666,7 +821,6 @@
                                             {timer > 0 ? '繼續遊戲' : '開始遊戲'}
                                         </span>
                                     </button>
-                                    <p className="mt-4 text-slate-400 text-sm">按下按鈕後開始計時</p>
                                 </div>
                             </div>
                         )}
@@ -677,7 +831,7 @@
                             </div>
                         ) : (
                             <div 
-                                className={`grid grid-cols-9 w-[300px] h-[300px] sm:w-[450px] sm:h-[450px] sudoku-grid border-2 transition-all duration-500 ${!isGameStarted ? 'blur-sm opacity-50' : ''}`}
+                                className={`grid w-[300px] h-[300px] sm:w-[450px] sm:h-[450px] sudoku-grid border-2 transition-all duration-500 ${!isGameStarted ? 'blur-sm opacity-50' : ''} ${gridSize === 9 ? 'grid-cols-9' : 'grid-cols-6'}`}
                                 style={{ touchAction: 'manipulation' }}
                             >
                                 {gameBoard.map((row, r) => (
@@ -695,7 +849,6 @@
                         )}
                     </div>
 
-                    {/* 控制區 */}
                     <div className="mt-6 w-full max-w-[450px] px-4 z-10">
                         
                         <div className="flex justify-between gap-2 mb-4">
@@ -726,22 +879,25 @@
                                 disabled={!isGameStarted}
                                 className={`w-16 rounded-lg flex items-center justify-center glass-panel text-slate-300 hover:bg-white/10 transition-colors ${!isGameStarted ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title="清除格子"
+                                style={{background: panelBg}}
                             >
                                 <Eraser className="w-6 h-6" />
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-9 gap-1 sm:gap-2">
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                        {/* 數字鍵盤：根據 Grid Size 動態調整 */}
+                        <div className={`grid gap-1 sm:gap-2 ${gridSize === 9 ? 'grid-cols-9' : 'grid-cols-6'}`}>
+                            {Array.from({length: gridSize}, (_, i) => i+1).map(num => (
                                 <button
                                     key={num}
                                     onClick={() => handleNumberInput(num)}
                                     disabled={!isGameStarted}
-                                    className={`aspect-square flex items-center justify-center glass-panel rounded shadow text-xl sm:text-2xl font-bold transition border border-white/10 ${
+                                    className={`aspect-square flex items-center justify-center rounded shadow text-xl sm:text-2xl font-bold transition border border-white/10 ${
                                         isGameStarted 
                                         ? 'text-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-200 active:bg-cyan-500/40' 
                                         : 'text-slate-600 cursor-not-allowed'
                                     }`}
+                                    style={{background: panelBg}}
                                 >
                                     {num}
                                 </button>
